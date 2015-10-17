@@ -166,7 +166,7 @@ void pulse(uint8_t pin, uint8_t times)
     	digitalWrite(pin, HIGH);
     	delay(30);
     	digitalWrite(pin, LOW);
-    	delay(30);
+    	delay(70);
     }
 }
 
@@ -266,13 +266,9 @@ void beginProgramming()
     delay(65);
 
     SPI.begin();
+    // SPI.begin will set SCK to output, which defaults low
 
-    digitalWrite(RESET, HIGH);
     pinMode(RESET, OUTPUT);
-
-    digitalWrite(SCK, LOW);
-    digitalWrite(RESET, LOW);
-    digitalWrite(RESET, HIGH);
     digitalWrite(RESET, LOW);
 
     delay(20);

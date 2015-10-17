@@ -1,4 +1,4 @@
-#include "avrlib/Arduino.h"
+#include "Wiring.h"
 
 #include "piggy-prog.ino"
 
