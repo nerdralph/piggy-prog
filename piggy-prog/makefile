@@ -18,6 +18,8 @@ TARGET       = piggy-prog
 SRC          = $(TARGET).cpp $(wildcard ../libs/*.cpp)
 CC_FLAGS     =
 LD_FLAGS     =
+AVRDUDE_PORT = com16
+AVRDUDE_PROGRAMMER = arduino
 
 # Default target
 all:
