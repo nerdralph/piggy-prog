@@ -1,3 +1,6 @@
 [submodule "dmbs"]
 	path = dmbs
 	url = http://github.com/nerdralph/dmbs.git
+[submodule "libs"]
+	path = libs
+	url = http://github.com/nerdralph/picoWiring.git
