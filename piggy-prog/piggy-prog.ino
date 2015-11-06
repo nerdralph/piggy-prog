@@ -20,6 +20,9 @@
 // 8: Error       - Lights up if something goes wrong (use red if that makes sense)
 // SCK is the LED pin, so the LED will flicker during programming
 // 
+// November 2015 Ralph Doncaster
+// added clock output on pin 6 (PD6) for AVRs with bad clock fuse settings 
+//
 // August 2015 Ralph Doncaster
 // adapted Weihong Guan's fork to work with a pro mini as piggy-prog
 // http://nerdralph.blogspot.ca/2015/08/pigggy-prog-project-ideas.html
@@ -51,6 +54,7 @@
 // - More information at http://code.google.com/p/mega-isp
 
 #include "SPI.h"
+#include <util/delay.h>
 
 #define RESET     5
 #define POWER     14
@@ -100,6 +104,13 @@ void reply(bool has_byte = false, byte val = 0x00, bool send_ok = true);
 void pulse(uint8_t pin, uint8_t times);
 void avrisp();
 
+// Arduino delay uses timer0 millis timer, which we are using for
+// clock output.  We define our own delay instead
+void msDelay(uint8_t ms)
+{
+    while ( ms-- ) _delay_ms(1);
+}
+
 void heartbeat()
 {
     static bool state;
@@ -134,6 +145,16 @@ void setup()
     pinMode(LED_HEARTBEAT, OUTPUT);
     pulse(LED_HEARTBEAT, 2);
 
+    pinMode(6, OUTPUT);
+    // Arduino core uses timer/counter0 for millis interrupt, so disable
+    // it since we are using it for pin 6 clock output
+    TIMSK0 = 0;
+
+    // setup PWM on pin 6 at half CPU clock frequency
+    OCR0A = 0;
+    // OC0A output, CTC mode 
+    TCCR0A = (1<<WGM01) | (1<<COM0A0)| (1<<WGM01);
+    TCCR0B = (1<<CS00); // no clock prescale
 }
 
 void loop(void)
@@ -164,9 +185,9 @@ void pulse(uint8_t pin, uint8_t times)
     while (times--)
     {
     	digitalWrite(pin, HIGH);
-    	delay(30);
+    	msDelay(30);
     	digitalWrite(pin, LOW);
-    	delay(70);
+    	msDelay(70);
     }
 }
 
@@ -263,7 +284,7 @@ void beginProgramming()
     digitalWrite(POWER, HIGH);
     pinMode(POWER, OUTPUT);
     // power-on reset delay can be up to 64ms + 14 clk
-    delay(65);
+    msDelay(65);
 
     SPI.begin();
     // SPI.begin will set SCK to output, which defaults low
@@ -271,7 +292,7 @@ void beginProgramming()
     pinMode(RESET, OUTPUT);
     digitalWrite(RESET, LOW);
 
-    delay(20);
+    msDelay(20);
 
     spiTransfer(0xAC, 0x53, 0x00, 0x00);
     _programming = true;
@@ -348,7 +369,7 @@ void writeEeprom(uint16_t address, uint16_t length)
     for (uint16_t i = length, addr = address << 1; i--;)
     {
     	spiTransfer(0xC0, addr++, *p++);
-    	delay(4);
+    	msDelay(4);
     }
     Serial.write(STK_OK);
 }
