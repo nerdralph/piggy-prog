@@ -57,6 +57,7 @@
 #include <util/delay.h>
 
 #define RESET     5
+#define CLOCK     6
 #define POWER     14
 #define GROUND    8
 
@@ -133,9 +134,9 @@ void setup()
     SPI.setDataMode(0);
     SPI.setBitOrder(MSBFIRST);
 
-    // Clock Div can be 2,4,8,16,32,64, or 128
-    // if the target is m8 runs at 16MHz, the spi could run at SPI_CLOCK_DIV4
-    SPI.setClockDivider(SPI_CLOCK_DIV8);
+    // Clock Div 128 == 125kHz SCK clock frequency, slow enough for
+    // 1Mhz AVRs
+    SPI.setClockDivider(SPI_CLOCK_DIV128);
 
     pulse(SCK, 2);
 
@@ -144,17 +145,6 @@ void setup()
 
     pinMode(LED_HEARTBEAT, OUTPUT);
     pulse(LED_HEARTBEAT, 2);
-
-    pinMode(6, OUTPUT);
-    // Arduino core uses timer/counter0 for millis interrupt, so disable
-    // it since we are using it for pin 6 clock output
-    TIMSK0 = 0;
-
-    // setup PWM on pin 6 at half CPU clock frequency
-    OCR0A = 0;
-    // OC0A output, CTC mode 
-    TCCR0A = (1<<WGM01) | (1<<COM0A0)| (1<<WGM01);
-    TCCR0B = (1<<CS00); // no clock prescale
 }
 
 void loop(void)
@@ -283,8 +273,20 @@ void beginProgramming()
     pinMode(GROUND, OUTPUT);
     digitalWrite(POWER, HIGH);
     pinMode(POWER, OUTPUT);
+
     // power-on reset delay can be up to 64ms + 14 clk
     msDelay(65);
+
+    pinMode(CLOCK, OUTPUT);
+    // Arduino core uses timer/counter0 for millis interrupt, so disable
+    // it since we are using it for pin 6 clock output
+    TIMSK0 = 0;
+
+    // setup PWM on pin 6 at half CPU clock frequency
+    OCR0A = 0;
+    // OC0A output, CTC mode 
+    TCCR0A = (1<<WGM01) | (1<<COM0A0)| (1<<WGM01);
+    TCCR0B = (1<<CS00); // no clock prescale
 
     SPI.begin();
     // SPI.begin will set SCK to output, which defaults low
@@ -306,7 +308,11 @@ void endProgramming()
     //  remove these lines to leave targed powered after programming
     pinMode(GROUND, INPUT);
     pinMode(POWER, INPUT);
+    pinMode(CLOCK, INPUT);
     digitalWrite(POWER, LOW);
+
+    TCCR0A = 0;
+    TCCR0B = 0;
 
     pinMode(RESET, INPUT);
     _programming = false;
