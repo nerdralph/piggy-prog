@@ -102,7 +102,7 @@ typedef struct param
 parameter _param;
 
 void reply(bool has_byte = false, byte val = 0x00, bool send_ok = true);
-void pulse(uint8_t pin, uint8_t times);
+void pulse(uint8_t pin);
 void avrisp();
 
 // Arduino delay uses timer0 millis timer, which we are using for
@@ -138,13 +138,11 @@ void setup()
     // 1Mhz AVRs
     SPI.setClockDivider(SPI_CLOCK_DIV128);
 
-    pulse(SCK, 2);
-
     pinMode(LED_ERROR, OUTPUT);
-    pulse(LED_ERROR, 2);
+    pulse(LED_ERROR);
 
     pinMode(LED_HEARTBEAT, OUTPUT);
-    pulse(LED_HEARTBEAT, 2);
+    pulse(LED_HEARTBEAT);
 }
 
 void loop(void)
@@ -159,25 +157,24 @@ uint8_t getch()
 {
     while (!Serial.available())
     	;
-    return Serial.read();
+    return (uint8_t) Serial.read();
 }
 
 void fill(uint8_t n)
 {
-    for (uint8_t i = 0; i < n; i++)
-    {
-    	_buff[i] = getch();
-    }
+    uint8_t i = 0;
+    while (n--) _buff[i++] = getch();
 }
 
-void pulse(uint8_t pin, uint8_t times)
+void pulse(uint8_t pin)
 {
+    uint8_t times = 3;
     while (times--)
     {
     	digitalWrite(pin, HIGH);
-    	msDelay(30);
+    	msDelay(100);
     	digitalWrite(pin, LOW);
-    	msDelay(70);
+    	msDelay(100);
     }
 }
 
@@ -486,7 +483,7 @@ void avrisp()
     	reply();
     	break;
     case 'P':
-    	_programming ? pulse(LED_ERROR, 3) : beginProgramming();
+    	_programming ? pulse(LED_ERROR) : beginProgramming();
     	reply();
     	break;
     case 'U': // set address (word)
