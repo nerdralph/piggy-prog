@@ -66,7 +66,7 @@
 
 #define HARDWARE_VERSION    2
 #define FIRMWARE_MAJOR_VERSION    1
-#define FIRMWARE_MINOR_VERSION    42
+#define FIRMWARE_MINOR_VERSION    43
 
 // STK Definitions
 #define STK_OK      0x10
@@ -265,33 +265,34 @@ void setParameters()
 void beginProgramming()
 {
     
-    // power up target
-    digitalWrite(GROUND, LOW);
+    // power up target - default output value is LOW
     pinMode(GROUND, OUTPUT);
+    pinMode(RESET, OUTPUT);
+
     digitalWrite(POWER, HIGH);
     pinMode(POWER, OUTPUT);
 
+    //msDelay(20);        // clock startup delay?
     // power-on reset delay can be up to 64ms + 14 clk
-    msDelay(65);
+    // msDelay(65);
 
     pinMode(CLOCK, OUTPUT);
-    // Arduino core uses timer/counter0 for millis interrupt, so disable
-    // it since we are using it for pin 6 clock output
+    // Arduino core uses timer/counter0 for millis interrupt.
+    // Disable it since we are using it for pin 6 clock output
     TIMSK0 = 0;
+    TCCR0A = 0;
+    TCCR0B = 0;
+    TCNT0 = 255;
 
     // setup PWM on pin 6 at half CPU clock frequency
     OCR0A = 0;
     // OC0A output, CTC mode 
-    TCCR0A = (1<<WGM01) | (1<<COM0A0)| (1<<WGM01);
+    TCCR0A = (1<<WGM01) | (1<<COM0A0);
     TCCR0B = (1<<CS00); // no clock prescale
 
     SPI.begin();
     // SPI.begin will set SCK to output, which defaults low
 
-    pinMode(RESET, OUTPUT);
-    digitalWrite(RESET, LOW);
-
-    msDelay(20);
 
     spiTransfer(0xAC, 0x53, 0x00, 0x00);
     _programming = true;
