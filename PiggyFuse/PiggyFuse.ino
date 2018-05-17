@@ -5,6 +5,8 @@
 //
 // works with tiny13, tinyX4, tinyX5
 // designed for use with a Pro Mini on top of an 8-pin tiny AVR
+// Blog article:
+// http://nerdralph.blogspot.ca/2018/05/piggyfuse-hvsp-avr-fuse-programmer.html
 
 #define  LED     13
 #define  GND     12    // Target GND
