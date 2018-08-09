@@ -8,6 +8,7 @@
 // Blog article:
 // http://nerdralph.blogspot.ca/2018/05/piggyfuse-hvsp-avr-fuse-programmer.html
 
+#define  RSTPD   14    // reset pulldown divider
 #define  LED     13
 #define  GND     12    // Target GND
 #define  RST     11    // To NPN switch to RST for 12V
@@ -22,6 +23,7 @@
 #define  WEFUSE  0x666E
 
 const int PageSize = 32;
+byte PageBuf[64];       // max ATtiny page size
 
 // fuse operation codes
 enum FuseOp {
@@ -55,8 +57,8 @@ byte success;
 
 void setup() {
   digitalWrite(RST, HIGH);  // turns on NPN & shorts 12V 
-  pinMode(VCC, OUTPUT);
   pinMode(GND, OUTPUT);
+  pinMode(VCC, OUTPUT);
   pinMode(SDI, OUTPUT);
   pinMode(SII, OUTPUT);
   pinMode(SCI, OUTPUT);
@@ -68,24 +70,32 @@ void setup() {
   delayMicroseconds(20);    // wait 20us for VCC to rise
   digitalWrite(RST, LOW);   // 12V to RST
   pinMode(SDO, INPUT);      // Set SDO to input before target drives it high
+  delayMicroseconds(10);    // wait for prog_enable latch
+  pinMode(RSTPD, OUTPUT);
   delayMicroseconds(300);   // wait for target ready
   
   // target should now be in programming mode
+  readSigPage();
+  dumpBuf();
   unsigned int sig = readSignature();
   Serial.print(F("Signature: "));
   Serial.println(sig, HEX);
   Serial.print(F("OSCCAL: "));
-  Serial.println(readOsccal(), HEX);
+  Serial.println(PageBuf[1], HEX);
   printFuses();
+  long startMicros = micros();
   byte lock = readFuse(RLOCK);
+  Serial.print(micros() - startMicros);
+  Serial.println(F(" us fuse read time."));
   if ( lock != 0xFF) {
     Serial.println(F("Lock bits set.  Performing chip erase."));
     chipErase();
   }
   if (sig == BLANK) {
     Serial.println(F("Blank signature. resetting to t13"));
-    writeSig(0x60);
+    writeSig(0x68);
   }
+  //writeSig(0x60);
   success = 1;
   byte hfuse;
   if (sig == ATTINY13) {
@@ -97,6 +107,7 @@ void setup() {
       hfuse = 0xFF;   // alternate fuse setting
       success = 2;
     }
+    startMicros = micros();
     writeFuse(WLFUSE, 0x7A);
     writeFuse(WHFUSE, hfuse);
   } else if (sig == ATTINY24 || sig == ATTINY44 || sig == ATTINY84 ||
@@ -109,6 +120,7 @@ void setup() {
       hfuse = 0xDF;   // alternate fuse setting SPIEN
       success = 2;
     }
+    startMicros = micros();
     writeFuse(WLFUSE, 0xE2);
     writeFuse(WHFUSE, hfuse);
     writeFuse(WEFUSE, 0xFE);
@@ -119,6 +131,7 @@ void setup() {
     Serial.println(F("unrecognized device."));
     success = 0;
   }
+  int duration = micros() - startMicros;
   if (success == 0){
     Serial.print(F("No"));
   } else if (success == 1) {
@@ -128,6 +141,9 @@ void setup() {
   }
   Serial.println(F(" fuses programmed."));
 
+  Serial.print(duration);
+  Serial.println(F(" us."));
+  
   sig = readSignature();
   Serial.print(F("Signature: "));
   Serial.println(sig, HEX);
@@ -155,7 +171,6 @@ void loop() {
       delay(100);
     }
   }
-
   digitalWrite(LED, LOW);
   delay(2000);
 }
@@ -165,8 +180,18 @@ byte shiftOut (byte sdata, byte sinstr) {
   unsigned int dout = (unsigned int) sdata << 2;
   unsigned int iout = (unsigned int) sinstr << 2;
   for (int ii = 10; ii >= 0; ii--)  {
-    digitalWrite(SDI, !!(dout & (1 << ii)));
-    digitalWrite(SII, !!(iout & (1 << ii)));
+    //digitalWrite(SDI, !!(dout & (1 << ii)));
+    //digitalWrite(SII, !!(iout & (1 << ii)));
+    if (dout & 1<<10)
+      digitalWrite(SDI, HIGH);
+    else
+      digitalWrite(SDI, LOW);
+    if (iout & 1<<10)
+      digitalWrite(SII, HIGH);
+    else
+      digitalWrite(SII, LOW);
+    dout <<= 1;
+    iout <<= 1;
     inBits <<= 1;
     inBits |= digitalRead(SDO);
     digitalWrite(SCI, HIGH);
@@ -216,13 +241,21 @@ void loadPage(byte buf[PageSize]) {
   // for (byte addr = 0; addr
 }
 
+void sigErase()
+{
+  shiftOut(ChipErase, 0xCC);
+  shiftOut(0x00, 0x64);
+  shiftOut(0x00, 0x6C);
+  busyWait();
+}
+
 void chipErase()
 {
   sendCmd(ChipErase);
   shiftOut(0x00, 0x64);
   shiftOut(0x00, 0x6C);
   busyWait();
-  sendCmd(NoOp);
+  //sendCmd(NoOp);
 }
 
 void writeFuse (unsigned int fuse, byte val) {
@@ -240,6 +273,14 @@ byte readFuse(FuseOp fusecmd){
   return sendCmd(NoOp);
 }
 
+void dumpBuf(){
+    for (byte i = 0; i < PageSize; i++) {
+        Serial.print(PageBuf[i], HEX);
+        Serial.print(' ');
+    }
+    Serial.println();
+}
+
 void printFuses () {
   byte val;
   val = readFuse(RLFUSE);
@@ -254,6 +295,18 @@ void printFuses () {
   val = readFuse(RLOCK);
   Serial.print(F(", Lock: "));
   Serial.println(val, HEX);
+}
+
+void readSigPage(){
+  for (int addr = 0; addr < PageSize/2; addr++) {
+    sendCmd(ReadSig);
+    loadLoAddr(addr);
+    shiftOut(0x00, 0x68);
+    PageBuf[addr*2] = shiftOut(0x00, 0x78);
+    //PageBuf[addr*2] = shiftOut(0x00, 0x6C);
+    //shiftOut(0x00, 0x78);
+    PageBuf[addr*2+1] = shiftOut(0x00, 0x6C);
+  }
 }
 
 byte readOsccal() {
