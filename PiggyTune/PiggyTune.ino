@@ -7,16 +7,17 @@
 // designed for use with a Pro Mini on top of an 8-pin tiny AVR
 // Blog article:
 // http://nerdralph.blogspot.ca/2018/05/piggyfuse-hvsp-avr-fuse-programmer.html
+// SDO needs weak external pulldown
 
-#define  RSTMON  14    // reset sense 22K resistor
+#define  RSTMON  14    // connect 10-20k resistor to target RESET
 #define  LED     13
 #define  GND     12    // Target GND
-#define  RST12   11    // To NPN+PNP switch for RST 12V
 #define  SCI     10    // Target Clock Input
 #define  SDO      9    // Target Data Output
 #define  SII      8    // Target Instruction Input
 #define  SDI      7    // Target Data Input
 #define  VCC      6    // Target VCC
+#define  RST12    5    // To NPN+PNP switch for RST 12V
 
 const int OSCTUNE=1;
 
@@ -81,24 +82,39 @@ inline void clrPin(uint8_t pin) {
   }
 }
 
+// inline uint8_t readPin(uint8_t pin) {
+inline bool readPin(uint8_t pin) {
+  if (pin < 8){
+    return PIND & (1<<pin);
+  }
+  else if (pin < 14) {
+    return PINB & (1<<(pin-8));
+  }
+  else if (pin < 20) {
+    return PINC & (1<<(pin-14));
+  }
+}
+
 void setup() {
   pinMode(GND, OUTPUT);
+  // RST12 low = 12V switched off
   pinMode(RST12, OUTPUT);
   pinMode(RSTMON, OUTPUT);
   pinMode(VCC, OUTPUT);
   pinMode(SDI, OUTPUT);
   pinMode(SII, OUTPUT);
   pinMode(SCI, OUTPUT);
+  // weak external pulldown means SDO pin stays as input
   pinMode(SDO, OUTPUT);     // Configured as input when in programming mode
-  Serial.begin(57600);
+  Serial.begin(38400);
   Serial.println(F("\nHSVP fuse resetter"));
 
   //digitalWrite(VCC, HIGH);  // Vcc On
   setPin(VCC);
-  delayMicroseconds(20);    // wait 20us for VCC to rise
-  pinMode(RST12, INPUT);
-  //digitalWrite(RST12, HIGH);   // 12V to RST
-  setPin(RST12);            // 12V to RST
+  // HVSP algo step 2 wait 20us for VCC to rise, then apply 12V
+  delayMicroseconds(20);
+  //pinMode(RST12, INPUT);
+  setPin(RST12);                        // enable pullup for 12V to RST
   pinMode(RSTMON, INPUT);
   pinMode(SDO, INPUT);      // Set SDO to input before target drives it high
   delayMicroseconds(300);   // wait for target ready
@@ -116,7 +132,11 @@ void setup() {
   byte lock = readFuse(RLOCK);
   Serial.print(micros() - startMicros);
   Serial.println(F(" us fuse read time."));
-  if ( lock != 0xFF) {
+  if ( lock == 0) {
+    // lock high bits always read as 1
+    Serial.println(F("No target detected."));
+    goto done;
+  } else if ( lock != 0xFF) {
     Serial.println(F("Lock bits set.  Performing chip erase."));
     chipErase();
   }
@@ -130,10 +150,11 @@ void setup() {
   if (sig == ATTINY13) {
     Serial.println(F("t13."));
     //hfuse = 0xE4;   // SELFPRG, DW, BOD1.8V, RSTDSBL
-    hfuse = 0xE7;   // SELFPRG, DW
+    //hfuse = 0xE7;   // SELFPRG, DW
+    hfuse = 0xFF;
     if (readFuse(RHFUSE) == hfuse && !OSCTUNE){
       //hfuse = 0xEE;   // SELFPRG, RSTDSBL
-      hfuse = 0xFF;   // alternate fuse setting
+      hfuse = 0xFF;     // default hfuse setting
       success = 2;
     }
     startMicros = micros();
@@ -179,8 +200,12 @@ void setup() {
   Serial.print(F("Signature: "));
   Serial.println(sig, HEX);
   printFuses();
-  Serial.println(F("Fuse resetter finished."));
-  Serial.println(F("Reset programmer to run again."));
+done:
+  Serial.println(F("Done. Reset programmer to run again."));
+  clrPin(RST12);                        // disable 12V
+  clrPin(VCC);
+  pinMode(RST12, OUTPUT);
+  while(1);                             // halt
 }
 
 void loop() {
@@ -268,31 +293,24 @@ void oscTune(){
   Serial.println(F(" ,oscTune fininshed."));
 }
 
+// transmit one byte on SDI and SDI
 byte shiftOut (byte sdata, byte sinstr) {
   int inBits = 0;
   unsigned int dout = (unsigned int) sdata << 2;
   unsigned int iout = (unsigned int) sinstr << 2;
   for (int ii = 10; ii >= 0; ii--)  {
-    //digitalWrite(SDI, !!(dout & (1 << ii)));
-    //digitalWrite(SII, !!(iout & (1 << ii)));
-    if (dout & 1<<10)
-      //digitalWrite(SDI, HIGH);
-      setPin(SDI);
-    else
-      //digitalWrite(SDI, LOW);
-      clrPin(SDI);
-    if (iout & 1<<10)
-      //digitalWrite(SII, HIGH);
-      setPin(SII);
-    else
-      //digitalWrite(SII, LOW);
-      clrPin(SII);
+    if (dout & 1<<10) setPin(SDI);
+    else clrPin(SDI);
+
+    if (iout & 1<<10) setPin(SII);
+    else clrPin(SII);
+
     dout <<= 1;
     iout <<= 1;
     inBits <<= 1;
-    inBits |= digitalRead(SDO);
-    //digitalWrite(SCI, HIGH);
-    //digitalWrite(SCI, LOW);
+
+    if (readPin(SDO)) inBits |= 1;
+
     setPin(SCI);
     clrPin(SCI);
   }
@@ -427,4 +445,3 @@ unsigned int readSignature () {
   }
   return sig;
 }
-
