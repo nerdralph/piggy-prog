@@ -25,6 +25,7 @@ const int OSCTUNE=1;
 #define  WHFUSE  0x747C
 #define  WEFUSE  0x666E
 
+// 4/8k devices have 64 byte pages, smaller have 32 byte pages
 const int PageSize = 32;
 byte PageBuf[64];       // max ATtiny page size
 
@@ -131,7 +132,7 @@ void setup() {
   long startMicros = micros();
   byte lock = readFuse(RLOCK);
   Serial.print(micros() - startMicros);
-  Serial.println(F(" us fuse read time."));
+  Serial.println(F(" us lock bit read time."));
   if ( lock == 0) {
     // lock high bits always read as 1
     Serial.println(F("No target detected."));
@@ -141,8 +142,9 @@ void setup() {
     chipErase();
   }
   if (sig == BLANK) {
-    Serial.println(F("Blank signature. resetting to t13"));
-    writeSig(0x68);
+    Serial.println(F("Blank signature."));
+    //Serial.println(F("Blank signature. resetting to t13"));
+    //writeSig(0x68);
   }
   //writeSig(0x60);
   success = 1;
@@ -293,28 +295,44 @@ void oscTune(){
   Serial.println(F(" ,oscTune fininshed."));
 }
 
+// datasheet says min 220ns serial clock period
+// at 16Mhz, sbi + cbi takes 4 cycles and 250ns
+inline void toggleSCI() {
+    setPin(SCI);
+    clrPin(SCI);
+}
+
 // transmit one byte on SDI and SDI
 byte shiftOut (byte sdata, byte sinstr) {
-  int inBits = 0;
-  unsigned int dout = (unsigned int) sdata << 2;
-  unsigned int iout = (unsigned int) sinstr << 2;
-  for (int ii = 10; ii >= 0; ii--)  {
-    if (dout & 1<<10) setPin(SDI);
+  uint8_t inBits;
+
+  // SDI & SII are 0 upon function entry, shift out leading 0
+  toggleSCI();                      
+
+  uint8_t bitcnt = 8;
+  do {
+    if (sdata & 0x80) setPin(SDI);
     else clrPin(SDI);
 
-    if (iout & 1<<10) setPin(SII);
+    if (sinstr & 0x80) setPin(SII);
     else clrPin(SII);
 
-    dout <<= 1;
-    iout <<= 1;
+    sdata <<= 1;
+    sinstr <<= 1;
     inBits <<= 1;
 
     if (readPin(SDO)) inBits |= 1;
 
-    setPin(SCI);
-    clrPin(SCI);
-  }
-  return inBits >> 2;
+    toggleSCI();
+  } while (--bitcnt);
+
+  // shift out 2 trailing 0
+  clrPin(SDI);
+  clrPin(SII);
+  toggleSCI();                      
+  toggleSCI();                      
+
+  return inBits;
 }
 
 byte sendCmd(HvCmd command) {
@@ -386,8 +404,8 @@ void writeFuse (unsigned int fuse, byte val) {
 byte readFuse(FuseOp fusecmd){
   sendCmd(ReadFuse);
   shiftOut(0x00, (byte) (fusecmd >> 8));
-  //return shiftOut(0x00, (byte) fusecmd);
   return sendCmd(NoOp);
+  //return shiftOut(0, 0); // nop
 }
 
 void dumpBuf(){
